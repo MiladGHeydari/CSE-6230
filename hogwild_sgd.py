@@ -3,9 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import pandas as pd
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, DistributedSampler
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
+import tqdm
+import torch.multiprocessing as mp
 
 class DriveDataset(Dataset):
     def __init__(self, csv_file):
@@ -28,15 +30,6 @@ class DriveDataset(Dataset):
         target = torch.tensor(self.data.iloc[idx, -1], dtype=torch.long)
         return features, target
 
-dataset = DriveDataset('Sensorless_drive_diagnosis.txt')
-train_data, test_data = train_test_split(dataset, test_size=0.2, random_state=42)
-train_loader = DataLoader(train_data, batch_size=64, shuffle=True)
-
-input_dim = 48
-hidden_size1 = 32
-hidden_size2 = 64
-num_classes = 11
-
 class ThreeLayerNet(nn.Module):
     def __init__(self, input_dim, hidden_size1, hidden_size2, num_classes):
         super(ThreeLayerNet, self).__init__()
@@ -55,52 +48,45 @@ class ThreeLayerNet(nn.Module):
         x = self.lin3(x)
         # No activation after the last layer as CrossEntropyLoss includes SoftMax
         return x
+    
+def train(model, data_loader):
+    optimizer = optim.Adam(model.parameters())
+    criterion = nn.CrossEntropyLoss()
 
-# Updated model instantiation with the new layer sizes
-model = ThreeLayerNet(input_dim, hidden_size1, hidden_size2, num_classes)
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(model.parameters(), lr=0.0025)
+    for epoch in range(10):
+        epoch_loss = 0.0
+        for data, labels in tqdm.tqdm(data_loader):
+            optimizer.zero_grad()
+            loss = criterion(model(data), labels)
+            epoch_loss += loss.item()
+            loss.backward()        
+            optimizer.step()
+        print(f'Epoch [{epoch+1}/10], Loss: {loss.item():.4f}')
 
-import time
-num_epochs = 100
-Converged = False
+input_dim = 48
+hidden_size1 = 32
+hidden_size2 = 64
+num_classes = 11
+num_processes = 4
 
-start_time = time.time()
+if __name__ == "__main__":
+    model = ThreeLayerNet(input_dim, hidden_size1, hidden_size2, num_classes)
+    model.share_memory()
 
-LossThreshold = 0.1
-
-for epoch in range(num_epochs):
-    if Converged:
-      break
-    model.train()
-    for inputs, targets in train_loader:
-
-        optimizer.zero_grad()
-        outputs = model(inputs)
-
-        loss = criterion(outputs, targets)
-        loss.backward()
-
-        optimizer.step()
-
-        if loss.item() < LossThreshold:
-          Converged = True
-    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
-
-end_time = time.time()
-duration = end_time - start_time
-print(f" {duration} seconds to converge.")
-
-model.eval()
-correct = 0
-total = 0
-with torch.no_grad():
-    for inputs, targets in DataLoader(test_data, batch_size=64):
-        outputs = model(inputs)
-        _, predicted = torch.max(outputs, 1)
-        total += targets.size(0)
-        correct += (predicted == targets).sum().item()
-
-accuracy = correct / total
-print(f'Test Accuracy: {accuracy:.4f}')
-
+    dataset = DriveDataset('Sensorless_drive_diagnosis.txt')
+    processes = []
+    for rank in range(num_processes):
+        data_loader = DataLoader(
+            dataset=dataset,
+            sampler=DistributedSampler(
+                dataset=dataset,
+                num_replicas=num_processes,
+                rank=rank
+            ),
+            batch_size=32
+        )
+        p = mp.Process(target=train, args=(model, data_loader))
+        p.start()
+        processes.append(p)
+    for p in processes:
+        p.join()

@@ -11,6 +11,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 from random import Random
 import math
+import time
 
 class Partition(object):
 
@@ -117,7 +118,7 @@ def run(rank, size):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.0025)
     num_batches = math.ceil(len(train_set.dataset) / float(bsz))
-    for epoch in range(100):
+    for epoch in range(20):
         epoch_loss = 0.0
         for data, target in train_set:
             optimizer.zero_grad()
@@ -125,10 +126,10 @@ def run(rank, size):
             loss = criterion(output, target)
             epoch_loss += loss.item()
             loss.backward()
-            average_gradients(model)
             optimizer.step()
-        print('Rank ', dist.get_rank(), ', epoch ',
-              epoch, ': ', epoch_loss / num_batches)
+        average_gradients(model)
+        #print('Rank ', dist.get_rank(), ', epoch ',
+              #epoch, ': ', epoch_loss / num_batches)
 
 def init_process(rank, size, fn, backend='gloo'):
     """ Initialize the distributed environment. """
@@ -141,6 +142,7 @@ if __name__ == "__main__":
     size = 1
     processes = []
     mp.set_start_method("spawn")
+    start = time.perf_counter()
     for rank in range(size):
         p = mp.Process(target=init_process, args=(rank, size, run))
         p.start()
@@ -148,3 +150,6 @@ if __name__ == "__main__":
 
     for p in processes:
         p.join()
+    end = time.perf_counter()
+    ms = (end - start)
+    print(f"Elapsed {ms:.03f} secs for {size} processes.")

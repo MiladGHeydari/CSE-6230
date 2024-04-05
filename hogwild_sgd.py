@@ -62,7 +62,7 @@ def train(model, data_loader):
             epoch_loss += loss.item()
             loss.backward()        
             optimizer.step()
-        #print(f'Epoch [{epoch+1}/20], Loss: {loss.item():.4f}')
+        print(f'Epoch [{epoch+1}/20], Loss: {epoch_loss:.4f}')
 
 input_dim = 48
 hidden_size1 = 32

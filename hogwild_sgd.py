@@ -8,6 +8,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 import tqdm
 import torch.multiprocessing as mp
+import time
 
 class DriveDataset(Dataset):
     def __init__(self, csv_file):
@@ -53,21 +54,21 @@ def train(model, data_loader):
     optimizer = optim.Adam(model.parameters())
     criterion = nn.CrossEntropyLoss()
 
-    for epoch in range(10):
+    for epoch in range(20):
         epoch_loss = 0.0
-        for data, labels in tqdm.tqdm(data_loader):
+        for data, labels in data_loader:
             optimizer.zero_grad()
             loss = criterion(model(data), labels)
             epoch_loss += loss.item()
             loss.backward()        
             optimizer.step()
-        print(f'Epoch [{epoch+1}/10], Loss: {loss.item():.4f}')
+        #print(f'Epoch [{epoch+1}/20], Loss: {loss.item():.4f}')
 
 input_dim = 48
 hidden_size1 = 32
 hidden_size2 = 64
 num_classes = 11
-num_processes = 4
+num_processes = 8
 
 if __name__ == "__main__":
     model = ThreeLayerNet(input_dim, hidden_size1, hidden_size2, num_classes)
@@ -75,6 +76,7 @@ if __name__ == "__main__":
 
     dataset = DriveDataset('Sensorless_drive_diagnosis.txt')
     processes = []
+    start = time.perf_counter()
     for rank in range(num_processes):
         data_loader = DataLoader(
             dataset=dataset,
@@ -90,3 +92,6 @@ if __name__ == "__main__":
         processes.append(p)
     for p in processes:
         p.join()
+    end = time.perf_counter()
+    ms = (end - start)
+    print(f"Elapsed {ms:.03f} secs for {num_processes} processes.")

@@ -6,7 +6,6 @@ import pandas as pd
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
-import tqdm
 import torch.multiprocessing as mp
 import time
 
@@ -54,7 +53,7 @@ def train(model, data_loader):
     optimizer = optim.Adam(model.parameters())
     criterion = nn.CrossEntropyLoss()
 
-    for epoch in range(20):
+    for epoch in range(10):
         epoch_loss = 0.0
         for data, labels in data_loader:
             optimizer.zero_grad()
@@ -68,7 +67,7 @@ input_dim = 48
 hidden_size1 = 32
 hidden_size2 = 64
 num_classes = 11
-num_processes = 8
+num_processes = 1
 
 if __name__ == "__main__":
     model = ThreeLayerNet(input_dim, hidden_size1, hidden_size2, num_classes)

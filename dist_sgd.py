@@ -128,8 +128,8 @@ def run(rank, size):
             loss.backward()
             optimizer.step()
         average_gradients(model)
-        #print('Rank ', dist.get_rank(), ', epoch ',
-              #epoch, ': ', epoch_loss / num_batches)
+        print('Rank ', dist.get_rank(), ', epoch ',
+              epoch, ': ', epoch_loss / num_batches)
 
 def init_process(rank, size, fn, backend='gloo'):
     """ Initialize the distributed environment. """
@@ -139,7 +139,7 @@ def init_process(rank, size, fn, backend='gloo'):
     fn(rank, size)
 
 if __name__ == "__main__":
-    size = 1
+    size = 2
     processes = []
     mp.set_start_method("spawn")
     start = time.perf_counter()

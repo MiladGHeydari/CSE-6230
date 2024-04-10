@@ -118,11 +118,14 @@ def run(rank, size):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.0025)
     num_batches = math.ceil(len(train_set.dataset) / float(bsz))
+    num_epochs = 20
     LossThreshold = 0.9
     Converged = False
-    for epoch in range(20):
+    
+    for epoch in range(num_epochs):
         if Converged:
             break
+        model.train()
         epoch_loss = 0.0
         for data, target in train_set:
             optimizer.zero_grad()
@@ -131,12 +134,17 @@ def run(rank, size):
             epoch_loss += loss.item()
             loss.backward()
             optimizer.step()
-        average_gradients(model)
 
-        if loss.item() < LossThreshold:
-            Converged = True
-        print('Rank ', dist.get_rank(), ', epoch ',
-              epoch, ': ', epoch_loss / num_batches)
+            # Check if loss is below threshold
+            if loss.item() < LossThreshold:
+                Converged = True
+
+        print(f'Rank {dist.get_rank()}, epoch {epoch + 1}/{num_epochs}, Loss: {epoch_loss / num_batches:.4f}')
+
+    # Ensure all processes have stopped training before exiting
+    dist.barrier()
+
+
 
 def init_process(rank, size, fn, backend='gloo'):
     """ Initialize the distributed environment. """

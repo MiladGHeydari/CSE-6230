@@ -8,8 +8,10 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 import torch.multiprocessing as mp
 import time
-
+import warnings
 import sys
+
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 class DriveDataset(Dataset):
     def __init__(self, csv_file):

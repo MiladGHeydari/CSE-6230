@@ -53,7 +53,7 @@ class ThreeLayerNet(nn.Module):
         # No activation after the last layer as CrossEntropyLoss includes SoftMax
         return x
     
-def train(model, data_loader):
+def train(model, data_loader, v_rank):
     optimizer = optim.Adam(model.parameters())
     criterion = nn.CrossEntropyLoss()
 
@@ -65,7 +65,8 @@ def train(model, data_loader):
             epoch_loss += loss.item()
             loss.backward()        
             optimizer.step()
-        print(f'Epoch [{epoch+1}/20], Loss: {epoch_loss:.4f}')
+        if v_rank == 0:
+            print(f'Epoch [{epoch+1}/20], Loss: {epoch_loss:.4f}')
 
 input_dim = 48
 hidden_size1 = 32
@@ -97,7 +98,7 @@ if __name__ == "__main__":
             ),
             batch_size=32
         )
-        p = mp.Process(target=train, args=(model, data_loader))
+        p = mp.Process(target=train, args=(model, data_loader, rank))
         p.start()
         processes.append(p)
     for p in processes:

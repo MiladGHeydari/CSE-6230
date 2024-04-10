@@ -9,6 +9,8 @@ from sklearn.model_selection import train_test_split
 import torch.multiprocessing as mp
 import time
 
+import sys
+
 class DriveDataset(Dataset):
     def __init__(self, csv_file):
         columns = [f'col{i+1}' for i in range(48)] + ['Class']
@@ -67,9 +69,16 @@ input_dim = 48
 hidden_size1 = 32
 hidden_size2 = 64
 num_classes = 11
-num_processes = 1
+num_processes = None
 
 if __name__ == "__main__":
+
+    if len(sys.argv) != 2:
+        print("Usage: script.py num_processes")
+        sys.exit(1)
+
+    num_processes = int(sys.argv[1])
+
     model = ThreeLayerNet(input_dim, hidden_size1, hidden_size2, num_classes)
     model.share_memory()
 

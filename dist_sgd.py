@@ -118,7 +118,11 @@ def run(rank, size):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.0025)
     num_batches = math.ceil(len(train_set.dataset) / float(bsz))
+    LossThreshold = 0.9
+    Converged = False
     for epoch in range(20):
+        if Converged:
+            break
         epoch_loss = 0.0
         for data, target in train_set:
             optimizer.zero_grad()
@@ -128,6 +132,9 @@ def run(rank, size):
             loss.backward()
             optimizer.step()
         average_gradients(model)
+
+        if loss.item() < LossThreshold:
+            Converged = True
         print('Rank ', dist.get_rank(), ', epoch ',
               epoch, ': ', epoch_loss / num_batches)
 
@@ -139,7 +146,7 @@ def init_process(rank, size, fn, backend='gloo'):
     fn(rank, size)
 
 if __name__ == "__main__":
-    size = 2
+    size = 8
     processes = []
     mp.set_start_method("spawn")
     start = time.perf_counter()

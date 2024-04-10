@@ -1,51 +1,18 @@
-import os
 import torch
-import torch.distributed as dist
-import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import pandas as pd
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, DistributedSampler
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
-from random import Random
-import math
+import torch.multiprocessing as mp
 import time
+import warnings
+import sys
 
-class Partition(object):
+warnings.filterwarnings("ignore", category=FutureWarning)
 
-    def __init__(self, data, index):
-        self.data = data
-        self.index = index
-
-    def __len__(self):
-        return len(self.index)
-
-    def __getitem__(self, index):
-        data_idx = self.index[index]
-        return self.data[data_idx]
-
-
-class DataPartitioner(object):
-
-    def __init__(self, data, sizes=[0.7, 0.2, 0.1], seed=1234):
-        self.data = data
-        self.partitions = []
-        rng = Random()
-        rng.seed(seed)
-        data_len = len(data)
-        indexes = [x for x in range(0, data_len)]
-        rng.shuffle(indexes)
-
-        for frac in sizes:
-            part_len = int(frac * data_len)
-            self.partitions.append(indexes[0:part_len])
-            indexes = indexes[part_len:]
-
-    def use(self, partition):
-        return Partition(self.data, self.partitions[partition])
-    
 class DriveDataset(Dataset):
     def __init__(self, csv_file):
         columns = [f'col{i+1}' for i in range(48)] + ['Class']
@@ -66,24 +33,6 @@ class DriveDataset(Dataset):
         features = torch.tensor(self.data.iloc[idx, :-1], dtype=torch.float32)
         target = torch.tensor(self.data.iloc[idx, -1], dtype=torch.long)
         return features, target
-    
-def partition_dataset():
-    dataset = dataset = DriveDataset('Sensorless_drive_diagnosis.txt')
-
-    size = dist.get_world_size()
-    bsz = 128 // size
-    partition_sizes = [1.0 / size for _ in range(size)]
-    partition = DataPartitioner(dataset, partition_sizes)
-    partition = partition.use(dist.get_rank())
-    train_set = torch.utils.data.DataLoader(partition,
-                                         batch_size=bsz,
-                                         shuffle=True)
-    return train_set, bsz
-
-input_dim = 48
-hidden_size1 = 32
-hidden_size2 = 64
-num_classes = 11
 
 class ThreeLayerNet(nn.Module):
     def __init__(self, input_dim, hidden_size1, hidden_size2, num_classes):
@@ -103,53 +52,57 @@ class ThreeLayerNet(nn.Module):
         x = self.lin3(x)
         # No activation after the last layer as CrossEntropyLoss includes SoftMax
         return x
-
-def average_gradients(model):
-    size = float(dist.get_world_size())
-    for param in model.parameters():
-        dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
-        param.grad.data /= size
-
-def run(rank, size):
-    """ Distributed function to be implemented later. """
-    torch.manual_seed(1234)
-    train_set, bsz = partition_dataset()
-    model = ThreeLayerNet(input_dim, hidden_size1, hidden_size2, num_classes)
+    
+def train(model, data_loader, v_rank):
+    optimizer = optim.Adam(model.parameters())
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.0025)
-    num_batches = math.ceil(len(train_set.dataset) / float(bsz))
-    for epoch in range(20):
-        epoch_loss = 0.0
-        for data, target in train_set:
-            optimizer.zero_grad()
-            output = model(data)
-            loss = criterion(output, target)
-            epoch_loss += loss.item()
-            loss.backward()
-            optimizer.step()
-        average_gradients(model)
-        print('Rank ', dist.get_rank(), ', epoch ',
-              epoch, ': ', epoch_loss / num_batches)
 
-def init_process(rank, size, fn, backend='gloo'):
-    """ Initialize the distributed environment. """
-    os.environ['MASTER_ADDR'] = '127.0.0.1'
-    os.environ['MASTER_PORT'] = '29500'
-    dist.init_process_group(backend, rank=rank, world_size=size)
-    fn(rank, size)
+    for epoch in range(10):
+        epoch_loss = 0.0
+        for data, labels in data_loader:
+            optimizer.zero_grad()
+            loss = criterion(model(data), labels)
+            epoch_loss += loss.item()
+            loss.backward()        
+            optimizer.step()
+        if v_rank == 0:
+            print(f'Epoch [{epoch+1}/20], Loss: {epoch_loss:.4f}')
+
+input_dim = 48
+hidden_size1 = 32
+hidden_size2 = 64
+num_classes = 11
+num_processes = None
 
 if __name__ == "__main__":
-    size = 2
+
+    if len(sys.argv) != 2:
+        print("Usage: script.py num_processes")
+        sys.exit(1)
+
+    num_processes = int(sys.argv[1])
+
+    model = ThreeLayerNet(input_dim, hidden_size1, hidden_size2, num_classes)
+    model.share_memory()
+
+    dataset = DriveDataset('Sensorless_drive_diagnosis.txt')
     processes = []
-    mp.set_start_method("spawn")
     start = time.perf_counter()
-    for rank in range(size):
-        p = mp.Process(target=init_process, args=(rank, size, run))
+    for rank in range(num_processes):
+        data_loader = DataLoader(
+            dataset=dataset,
+            sampler=DistributedSampler(
+                dataset=dataset,
+                num_replicas=num_processes,
+                rank=rank
+            ),
+            batch_size=32
+        )
+        p = mp.Process(target=train, args=(model, data_loader, rank))
         p.start()
         processes.append(p)
-
     for p in processes:
         p.join()
     end = time.perf_counter()
     ms = (end - start)
-    print(f"Elapsed {ms:.03f} secs for {size} processes.")
+    print(f"Elapsed {ms:.03f} secs for {num_processes} processes.")

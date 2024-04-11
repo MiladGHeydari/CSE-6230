@@ -38,12 +38,11 @@ class DriveDataset(Dataset):
         return features, target
 
 class ThreeLayerNet(nn.Module):
-    def __init__(self, input_dim, hidden_size1, hidden_size2, num_classes):
+    def __init__(self, input_dim, hidden_size, num_classes):
         super(ThreeLayerNet, self).__init__()
         self.flatten = nn.Flatten()
-        self.lin1 = nn.Linear(input_dim, hidden_size1)
-        self.lin2 = nn.Linear(hidden_size1, hidden_size2)
-        self.lin3 = nn.Linear(hidden_size2, num_classes)
+        self.lin1 = nn.Linear(input_dim, hidden_size)
+        self.lin2 = nn.Linear(hidden_size, num_classes)
         self.relu = nn.LeakyReLU()  # Use one instance for all activations
 
     def forward(self, x):
@@ -51,21 +50,19 @@ class ThreeLayerNet(nn.Module):
         x = self.lin1(x)
         x = self.relu(x)
         x = self.lin2(x)
-        x = self.relu(x)
-        x = self.lin3(x)
         # No activation after the last layer as CrossEntropyLoss includes SoftMax
         return x
     
-def train(model, data_loader, v_rank, converged):
-    optimizer = optim.Adam(model.parameters(), lr = 0.000025)
+def train(model, data_loader, v_rank):
+    optimizer = optim.Adam(model.parameters(), lr = 0.00001)
     criterion = nn.CrossEntropyLoss()
 
 
-    SGD_precent = 0.5 
+    SGD_precent = 0.075
     total_batches = len(data_loader)
     batches_to_use = int(total_batches * SGD_precent)
 
-    for epoch in range(300):
+    for epoch in range(3000):
         selected_indices = np.random.choice(range(total_batches), batches_to_use, replace=False)
         epoch_loss = 0.0
         for i, (data, labels) in enumerate(data_loader):
@@ -78,16 +75,14 @@ def train(model, data_loader, v_rank, converged):
         epoch_loss = epoch_loss / batches_to_use
         if v_rank == 0:
             print(f'Epoch [{epoch+1}], Loss: {epoch_loss:.4f}')
-            print(epoch_loss)
-        if epoch_loss < 0.05:
+        if epoch_loss < 0.4:
             return
 
 
 #==========
 
 input_dim = 48
-hidden_size1 = 32
-hidden_size2 = 64
+hidden_size = 16
 num_classes = 11
 num_processes = None
 
@@ -99,10 +94,8 @@ if __name__ == "__main__":
 
     num_processes = int(sys.argv[1])
 
-    model = ThreeLayerNet(input_dim, hidden_size1, hidden_size2, num_classes)
+    model = ThreeLayerNet(input_dim, hidden_size, num_classes)
     model.share_memory()
-
-    converged = mp.Value(ctypes.c_bool, False)
 
     dataset = DriveDataset('Sensorless_drive_diagnosis.txt')
     dataset, test_data = train_test_split(dataset, test_size=0.1, random_state = 40)
@@ -112,9 +105,9 @@ if __name__ == "__main__":
     for rank in range(num_processes):
         data_loader = DataLoader(
             dataset=dataset,
-            batch_size=32
+            batch_size = 16
         )
-        p = mp.Process(target=train, args=(model, data_loader, rank, converged))
+        p = mp.Process(target=train, args=(model, data_loader, rank))
         processes.append(p)
 
     for p in processes:

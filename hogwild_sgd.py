@@ -11,6 +11,9 @@ import time
 import warnings
 import sys
 
+import ctypes
+import numpy as np
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 class DriveDataset(Dataset):
@@ -53,20 +56,32 @@ class ThreeLayerNet(nn.Module):
         # No activation after the last layer as CrossEntropyLoss includes SoftMax
         return x
     
-def train(model, data_loader, v_rank):
-    optimizer = optim.Adam(model.parameters())
+def train(model, data_loader, v_rank, converged):
+    optimizer = optim.Adam(model.parameters(), lr = 0.000025)
     criterion = nn.CrossEntropyLoss()
 
-    for epoch in range(10):
+
+    SGD_precent = 0.5 
+    total_batches = len(data_loader)
+    batches_to_use = int(total_batches * SGD_precent)
+
+    for epoch in range(300):
+        selected_indices = np.random.choice(range(total_batches), batches_to_use, replace=False)
         epoch_loss = 0.0
-        for data, labels in data_loader:
-            optimizer.zero_grad()
-            loss = criterion(model(data), labels)
-            epoch_loss += loss.item()
-            loss.backward()        
-            optimizer.step()
+        for i, (data, labels) in enumerate(data_loader):
+            if i in selected_indices:
+                optimizer.zero_grad()
+                loss = criterion(model(data), labels)
+                epoch_loss += loss.item()
+                loss.backward()        
+                optimizer.step()
         if v_rank == 0:
-            print(f'Epoch [{epoch+1}/20], Loss: {epoch_loss:.4f}')
+            print(f'Epoch [{epoch+1}], Loss: {epoch_loss:.4f}')
+        if epoch_loss < 8:
+            return
+
+
+#==========
 
 input_dim = 48
 hidden_size1 = 32
@@ -85,24 +100,46 @@ if __name__ == "__main__":
     model = ThreeLayerNet(input_dim, hidden_size1, hidden_size2, num_classes)
     model.share_memory()
 
+    converged = mp.Value(ctypes.c_bool, False)
+
     dataset = DriveDataset('Sensorless_drive_diagnosis.txt')
+    dataset, test_data = train_test_split(dataset, test_size=0.1, random_state = 40)
+
     processes = []
     start = time.perf_counter()
     for rank in range(num_processes):
         data_loader = DataLoader(
             dataset=dataset,
-            sampler=DistributedSampler(
-                dataset=dataset,
-                num_replicas=num_processes,
-                rank=rank
-            ),
             batch_size=32
         )
-        p = mp.Process(target=train, args=(model, data_loader, rank))
-        p.start()
+        p = mp.Process(target=train, args=(model, data_loader, rank, converged))
         processes.append(p)
+
+    for p in processes:
+        p.start()
+        print("starting")
+
     for p in processes:
         p.join()
+        print("joining")
+
+    print("done")
     end = time.perf_counter()
     ms = (end - start)
     print(f"Elapsed {ms:.03f} secs for {num_processes} processes.")
+
+    #----
+
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for inputs, targets in DataLoader(test_data, batch_size=64):
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs, 1)
+            total += targets.size(0)
+            correct += (predicted == targets).sum().item()
+
+    accuracy = correct / total
+    print(f'Test Accuracy: {accuracy:.4f}')
+

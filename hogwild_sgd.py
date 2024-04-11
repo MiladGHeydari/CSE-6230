@@ -82,7 +82,7 @@ def train(model, data_loader, v_rank):
 #==========
 
 input_dim = 48
-hidden_size = 16
+hidden_size = 12
 num_classes = 11
 num_processes = None
 

@@ -75,9 +75,11 @@ def train(model, data_loader, v_rank, converged):
                 epoch_loss += loss.item()
                 loss.backward()        
                 optimizer.step()
+        epoch_loss = epoch_loss / batches_to_use
         if v_rank == 0:
             print(f'Epoch [{epoch+1}], Loss: {epoch_loss:.4f}')
-        if epoch_loss < 8:
+            print(epoch_loss)
+        if epoch_loss < 0.05:
             return
 
 

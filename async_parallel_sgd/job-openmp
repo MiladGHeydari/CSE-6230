@@ -1,0 +1,16 @@
+#!/bin/bash
+#SBATCH --job-name=n_async1
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -J n_async1
+#SBATCH -t 00:30:00
+#SBATCH --output=nasync1.%j.out
+#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --mail-user=mus3@gatech.edu
+
+#OpenMP settings:
+export OMP_NUM_THREADS=1
+export OMP_PLACES=cores
+
+#run the application:
+srun -n 1 ./openmp

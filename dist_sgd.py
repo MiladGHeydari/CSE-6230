@@ -133,6 +133,7 @@ def run(rank, size):
             # Check if loss is below threshold
             if loss.item() < LossThreshold:
                 return
+        average_gradients(model)
 
         if rank == 0:       
         	print(f'epoch {epoch + 1}, Loss: {epoch_loss / num_batches:.4f}')

@@ -12,6 +12,7 @@ from sklearn.model_selection import train_test_split
 from random import Random
 import math
 import time
+import sys
 
 class Partition(object):
 
@@ -80,18 +81,17 @@ def partition_dataset():
                                          shuffle=True)
     return train_set, bsz
 
+
 input_dim = 48
-hidden_size1 = 32
-hidden_size2 = 64
+hidden_size = 12
 num_classes = 11
 
 class ThreeLayerNet(nn.Module):
-    def __init__(self, input_dim, hidden_size1, hidden_size2, num_classes):
+    def __init__(self, input_dim, hidden_size, num_classes):
         super(ThreeLayerNet, self).__init__()
         self.flatten = nn.Flatten()
-        self.lin1 = nn.Linear(input_dim, hidden_size1)
-        self.lin2 = nn.Linear(hidden_size1, hidden_size2)
-        self.lin3 = nn.Linear(hidden_size2, num_classes)
+        self.lin1 = nn.Linear(input_dim, hidden_size)
+        self.lin2 = nn.Linear(hidden_size, num_classes)
         self.relu = nn.LeakyReLU()  # Use one instance for all activations
 
     def forward(self, x):
@@ -99,8 +99,6 @@ class ThreeLayerNet(nn.Module):
         x = self.lin1(x)
         x = self.relu(x)
         x = self.lin2(x)
-        x = self.relu(x)
-        x = self.lin3(x)
         # No activation after the last layer as CrossEntropyLoss includes SoftMax
         return x
 
@@ -114,17 +112,14 @@ def run(rank, size):
     """ Distributed function to be implemented later. """
     torch.manual_seed(1234)
     train_set, bsz = partition_dataset()
-    model = ThreeLayerNet(input_dim, hidden_size1, hidden_size2, num_classes)
+    model = ThreeLayerNet(input_dim, hidden_size, num_classes)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.0025)
     num_batches = math.ceil(len(train_set.dataset) / float(bsz))
-    num_epochs = 20
-    LossThreshold = 0.9
-    Converged = False
+
+    LossThreshold = 0.3
     
-    for epoch in range(num_epochs):
-        if Converged:
-            break
+    for epoch in range(3000):
         model.train()
         epoch_loss = 0.0
         for data, target in train_set:
@@ -137,9 +132,10 @@ def run(rank, size):
 
             # Check if loss is below threshold
             if loss.item() < LossThreshold:
-                Converged = True
+                return
 
-        print(f'Rank {dist.get_rank()}, epoch {epoch + 1}/{num_epochs}, Loss: {epoch_loss / num_batches:.4f}')
+        if rank == 0:       
+        	print(f'epoch {epoch + 1}, Loss: {epoch_loss / num_batches:.4f}')
 
     # Ensure all processes have stopped training before exiting
     dist.barrier()
@@ -154,7 +150,13 @@ def init_process(rank, size, fn, backend='gloo'):
     fn(rank, size)
 
 if __name__ == "__main__":
-    size = 8
+
+    if len(sys.argv) != 2:
+        print("Usage: script.py num_processes")
+        sys.exit(1)
+
+    size = int(sys.argv[1])
+
     processes = []
     mp.set_start_method("spawn")
     start = time.perf_counter()
